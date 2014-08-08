@@ -1,7 +1,15 @@
 <?php
 
-class LibPostgres {
+/*
+ * This is a PostgreSQL PHP wrapper.
+ *
+ * (c) 2014 Denis Milovanov
+ *
+ * See http://github.com/denismilovanov/LibPostgres
+ */
 
+class LibPostgres
+{
     private $rConnection;
     private $bConnected;
     private $sConnString;
@@ -15,18 +23,10 @@ class LibPostgres {
     private $sLastQuery;
     private $bActiveTransaction = false;
     private $bSingleTransaction = false;
+    private $iAffectedRowsCount = 0;
+    private $iLastResult = null;
 
     public function __construct($aConfig)
-    {
-        $this->parseConfig($aConfig);
-    }
-
-    public function t() {
-        $this->bSingleTransaction = true;
-        return $this;
-    }
-
-    public function parseConfig($aConfig)
     {
         $this->aConfig = $aConfig;
 
@@ -44,7 +44,8 @@ class LibPostgres {
                            . "options='--client_encoding=UTF8'";
     }
 
-    public function getConfig() {
+    public function getConfig()
+    {
         return $this->aConfig;
     }
 
@@ -56,8 +57,11 @@ class LibPostgres {
 
         $iLevel = error_reporting();
 
+        // to suppress E_WARNING that can happen
         error_reporting(0);
         $this->rConnection = pg_connect($this->sConnString);
+
+        // lets restore previous level
         error_reporting($iLevel);
 
         $iConnStatus = pg_connection_status($this->rConnection);
@@ -67,7 +71,7 @@ class LibPostgres {
                 pg_close($this->rConnection);
             }
 
-            throw new Exception('Невозможно подключиться к базе данных.');
+            throw new \Exception('Unable to connect.');
         }
 
         $this->bConnected = true;
@@ -100,93 +104,78 @@ class LibPostgres {
         return $this->close();
     }
 
-    public function startTransaction() {
-        if (!$this->connect()) {
+    private function isResultOK($aOKStatuses = array(PGSQL_TUPLES_OK))
+    {
+        return in_array($this->iLastResult, $aOKStatuses);
+    }
+
+    public function startTransaction()
+    {
+        if (! $this->connect()) {
             return false;
         }
 
         if ($this->bActiveTransaction) {
-            $this->handleQueryError(
+            $this->throwException(
                 "Cannot start another transaction, commit or rollback the previous one."
             );
 
             return false;
         }
 
-        $rQueryResult = pg_query(
-            $this->rConnection,
-            $this->process(array("BEGIN;"))
-        );
+        $rQueryResult = $this->_pg_query("BEGIN;", array(PGSQL_COMMAND_OK, PGSQL_TUPLES_OK));
 
-        $iResult = pg_result_status($rQueryResult);
-        $bResult = false;
-
-        if ($iResult == PGSQL_COMMAND_OK || $iResult == PGSQL_TUPLES_OK) {
-            $bResult = true;
-        } else {
-            $this->handleQueryError();
-
-            $bResult = false;
-        }
-
-        $this->bActiveTransaction = $bResult;
-
-        return $this->bActiveTransaction;
+        return $this->bActiveTransaction = true;
     }
 
-    public function commit($bDoErrorCheck = true) {
-        if (!$this->connect()) {
+    public function t()
+    {
+        $this->bSingleTransaction = true;
+        return $this;
+    }
+
+    public function commit()
+    {
+        if (! $this->connect()) {
             return false;
         }
 
-        if (!$this->bActiveTransaction) {
-            $this->handleQueryError(
+        if (! $this->bActiveTransaction) {
+            $this->throwException(
                 "Trying to commit without having an explicitly opened transaction."
             );
 
             return false;
         }
 
-        $bCanCommit = true;
-
-        if ($bDoErrorCheck) {
-            $bCanCommit = (!empty($this->aErrors)) ? false : true;
-        }
-
-        if ($bCanCommit) {
-            $this->query("COMMIT;");
-        } else {
-            $this->query("ROLLBACK;");
-            $this->handleQueryError(
-                "Rolling back transaction due to a failed compulsory error check."
-            );
-        }
-
+        $this->_pg_query("COMMIT;", array(PGSQL_COMMAND_OK, PGSQL_TUPLES_OK));
         $this->bActiveTransaction = false;
 
         return true;
     }
 
-    public function rollback() {
-        if (!$this->connect()) {
+    public function rollback()
+    {
+        if (! $this->connect()) {
             return false;
         }
 
-        if (!$this->bActiveTransaction) {
-            $this->handleQueryError(
+        if (! $this->bActiveTransaction) {
+            $this->throwException(
                 "Trying to roll back without having an explicitly opened transaction."
             );
 
             return false;
         }
 
-        $this->query("ROLLBACK;");
+        $this->_pg_query("ROLLBACK;", array(PGSQL_COMMAND_OK, PGSQL_TUPLES_OK));
         $this->bActiveTransaction = false;
 
         return true;
     }
 
-    public function escape($sArg) {
+    public function escape($sArg)
+    {
         if (! $this->connect()) {
             return false;
         }
@@ -200,7 +189,7 @@ class LibPostgres {
             return '';
         }
 
-        if (!$this->connect()) {
+        if (! $this->connect()) {
             return false;
         }
 
@@ -211,7 +200,7 @@ class LibPostgres {
         }
 
         foreach ($aArgs as $mArg) {
-            if (!preg_match('/([^\\\\])\?(w|i|d|f|)/', $this->sLastQuery, $aMatch)) {
+            if (! preg_match('/([^\\\\])\?(w|i|d|f|)/', $this->sLastQuery, $aMatch)) {
                 return $this->sLastQuery;
             }
 
@@ -300,159 +289,117 @@ class LibPostgres {
         return $this->sLastQuery;
     }
 
-    public function query()
+    private function _pg_query($aArguments = array(), $aOKStatuses = array(PGSQL_TUPLES_OK))
     {
-        if (!$this->connect()) {
-            return false;
+        if (is_scalar($aArguments)) {
+            $aArguments = array($aArguments);
         }
 
-        if (!$this->bActiveTransaction) {
-            $this->handleQueryError(
-                "Trying to peform a DDL/DML operation without having an explicitly opened transaction."
-            );
+        $iLevel = error_reporting();
 
-            return false;
-        }
+        // to suppress E_WARNING that can happen
+        error_reporting(0);
 
         $rQueryResult = pg_query(
             $this->rConnection,
-            $this->process(func_get_args())
+            $this->process($aArguments)
         );
 
-        if ($rQueryResult === false) {
-           $this->handleQueryError();
-           return false;
+        $this->iLastResult = pg_result_status($rQueryResult);
+
+        error_reporting($iLevel);
+
+        if (! $this->isResultOK($aOKStatuses)) {
+            if ($aArguments == array('ROLLBACK;')) {
+                // first false forces throwException to use pg_last_error
+                // second false prevents recursion:
+                //      throwException -> say rollback -> unable to say rollback (e.g. server has gone) ->
+                //      --> throwException -> say rollback -> unable to say rollback --> ...
+                $this->throwException(false, false);
+            } else {
+                $this->throwException();
+            }
         }
 
-        $iResult = pg_result_status($rQueryResult);
+        $this->iAffectedRowsCount = (int)pg_affected_rows($rQueryResult);
+        $this->iRows = (int)pg_num_rows($rQueryResult);
 
-        if ($iResult == PGSQL_COMMAND_OK || $iResult == PGSQL_TUPLES_OK) {
-            return true;
-        }
-
-        $this->handleQueryError();
-
-        return false;
+        return $rQueryResult;
     }
 
-    public function queryAff()
+    public function query()
     {
-        if (!$this->connect()) {
+        if (! $this->connect()) {
             return false;
         }
 
-        if (!$this->bActiveTransaction) {
-            $this->handleQueryError(
+        if ($this->bSingleTransaction) {
+            $this->startTransaction();
+        }
+
+        if (! $this->bActiveTransaction) {
+            // will throw an exception
+            $this->throwException(
                 "Trying to peform a DDL/DML operation without having an explicitly opened transaction."
             );
-
-            return false;
         }
 
-        $rQueryResult = pg_query(
-            $this->rConnection,
-            $this->process(func_get_args())
-        );
+        $rQueryResult = $this->_pg_query(func_get_args(), array(PGSQL_COMMAND_OK, PGSQL_TUPLES_OK));
 
-        if ($rQueryResult === false) {
-           $this->handleQueryError();
-           return false;
+        if ($this->bSingleTransaction) {
+            $this->bSingleTransaction = false;
+            $this->commit();
         }
 
-        $iResult = pg_result_status($rQueryResult);
-
-        if ($iResult != PGSQL_COMMAND_OK) {
-            $this->handleQueryError();
-            return false;
-        }
-
-        return pg_affected_rows($rQueryResult);
+        return true;
     }
 
     public function selectTable()
     {
         $aOut = array();
 
-        if (!$this->connect()) {
+        if (! $this->connect()) {
             return $aOut;
         }
 
-        $rQueryResult = pg_query(
-            $this->rConnection,
-            $this->process(func_get_args())
-        );
-
-        $iResult = pg_result_status($rQueryResult);
-
-        if ($iResult != PGSQL_TUPLES_OK) {
-            $this->handleQueryError();
-            return $aOut;
-        }
+        $rQueryResult = $this->_pg_query(func_get_args());
 
         while ($aResult = pg_fetch_assoc($rQueryResult)) {
             $aOut[] = $aResult;
         }
-
-        $this->iRows = pg_num_rows($rQueryResult);
 
         return $aOut;
     }
 
     public function selectRecord()
     {
-        if (!$this->connect()) {
+        if (! $this->connect()) {
             return array();
         }
 
-        $rQueryResult = pg_query(
-            $this->rConnection,
-            $this->process(func_get_args())
-        );
+        $rQueryResult = $this->_pg_query(func_get_args());
 
-        $iResult = pg_result_status($rQueryResult);
-
-        if ($iResult != PGSQL_TUPLES_OK) {
-            $this->handleQueryError();
-            return array();
-        }
-
-        if (pg_num_rows($rQueryResult) == 0) {
+        if ($this->iRows == 0) {
             return array();
         }
 
         $aRecord = pg_fetch_array($rQueryResult, 0, PGSQL_ASSOC);
 
-        return $aRecord ? $aRecord : array();
+        return $aRecord ? : array();
     }
 
     public function selectField()
     {
-        if (!$this->connect()) {
+        if (! $this->connect()) {
             return false;
         }
 
-        if ($this->bSingleTransaction) $this->startTransaction();
-
-        $rQueryResult = pg_query(
-            $this->rConnection,
-            $this->process(func_get_args())
-        );
-
-        $iResult = pg_result_status($rQueryResult);
-
-        if ($iResult != PGSQL_TUPLES_OK) {
-            $this->handleQueryError();
-            return false;
-        }
-
-        if ($this->bSingleTransaction) $this->commit();
-
-        $this->bSingleTransaction = false;
+        $rQueryResult = $this->_pg_query(func_get_args());
 
         $aRecord = pg_fetch_row($rQueryResult);
 
-
-
+        // it is strange situation $aResult[0] is not set
+        // selectField("SELECT ;") will throw an error in _pg_query
         return $aRecord ? $aRecord[0] : null;
     }
 
@@ -460,27 +407,17 @@ class LibPostgres {
     {
         $aOut = array();
 
-        if (!$this->connect()) {
+        if (! $this->connect()) {
             return $aOut;
         }
 
-        $rQueryResult = pg_query(
-            $this->rConnection,
-            $this->process(func_get_args())
-        );
-
-        $iResult = pg_result_status($rQueryResult);
-
-        if ($iResult != PGSQL_TUPLES_OK) {
-            $this->handleQueryError();
-            return $aOut;
-        }
+        $rQueryResult = $this->_pg_query(func_get_args());
 
         while ($aResult = pg_fetch_row($rQueryResult)) {
-            $aOut[] = $aResult[0];
+            // it is strange situation $aResult[0] is not set
+            // selectColumn("SELECT ;") will throw an error in _pg_query
+            $aOut []= $aResult[0];
         }
-
-        $this->iRows = pg_num_rows($rQueryResult);
 
         return $aOut;
     }
@@ -489,27 +426,18 @@ class LibPostgres {
     {
         $aOut = array();
 
-        if (!$this->connect()) {
+        if (! $this->connect()) {
             return $aOut;
         }
 
-        $rQueryResult = pg_query(
-            $this->rConnection,
-            $this->process(func_get_args())
-        );
-
-        $iResult = pg_result_status($rQueryResult);
-
-        if ($iResult != PGSQL_TUPLES_OK) {
-            $this->handleQueryError();
-            return $aOut;
-        }
+        $rQueryResult = $this->_pg_query(func_get_args());
 
         while ($aResult = pg_fetch_row($rQueryResult)) {
+            // keeping in mind the performance we do not check if $aResult[0], $aResult[1] are set
+            // you should provide at least 2 column in the result set
+            // also we do not suppress warnings by operator @, is is VERY BAD practice
             $aOut[$aResult[0]] = $aResult[1];
         }
-
-        $this->iRows = pg_num_rows($rQueryResult);
 
         return $aOut;
     }
@@ -518,27 +446,16 @@ class LibPostgres {
     {
         $aOut = array();
 
-        if (!$this->connect()) {
+        if (! $this->connect()) {
             return $aOut;
         }
 
-        $rQueryResult = pg_query(
-            $this->rConnection,
-            $this->process(func_get_args())
-        );
-
-        $iResult = pg_result_status($rQueryResult);
-
-        if ($iResult != PGSQL_TUPLES_OK) {
-            $this->handleQueryError();
-            return $aOut;
-        }
+        $rQueryResult = $this->_pg_query(func_get_args());
 
         while ($aResult = pg_fetch_row($rQueryResult)) {
-            $aOut[$aResult[0]][] = $aResult[1];
+            // you should provide at least 2 column in the result set
+            $aOut[$aResult[0]] []= $aResult[1];
         }
-
-        $this->iRows = pg_num_rows($rQueryResult);
 
         return $aOut;
     }
@@ -547,27 +464,15 @@ class LibPostgres {
     {
         $aOut = array();
 
-        if (!$this->connect()) {
+        if (! $this->connect()) {
             return $aOut;
         }
 
-        $rQueryResult = pg_query(
-            $this->rConnection,
-            $this->process(func_get_args())
-        );
-
-        $iResult = pg_result_status($rQueryResult);
-
-        if ($iResult != PGSQL_TUPLES_OK) {
-            $this->handleQueryError();
-            return $aOut;
-        }
+        $rQueryResult = $this->_pg_query(func_get_args());
 
         while ($aResult = pg_fetch_assoc($rQueryResult)) {
             $aOut[reset($aResult)] = $aResult;
         }
-
-        $this->iRows = pg_num_rows($rQueryResult);
 
         return $aOut;
     }
@@ -576,27 +481,16 @@ class LibPostgres {
     {
         $aOut = array();
 
-        if (!$this->connect()) {
+        if (! $this->connect()) {
             return $aOut;
         }
 
-        $rQueryResult = pg_query(
-            $this->rConnection,
-            $this->process(func_get_args())
-        );
-
-        $iResult = pg_result_status($rQueryResult);
-
-        if ($iResult != PGSQL_TUPLES_OK) {
-            $this->handleQueryError();
-            return $aOut;
-        }
+        $rQueryResult = $this->_pg_query(func_get_args());
 
         while ($aResult = pg_fetch_row($rQueryResult)) {
+            // you should provide at least 3 column in the result set
             $aOut[$aResult[0]][$aResult[1]] = $aResult[2];
         }
-
-        $this->iRows = pg_num_rows($rQueryResult);
 
         return $aOut;
     }
@@ -605,29 +499,18 @@ class LibPostgres {
     {
         $aOut = array();
 
-        if (!$this->connect()) {
+        if (! $this->connect()) {
             return $aOut;
         }
 
-        $rQueryResult = pg_query(
-            $this->rConnection,
-            $this->process(func_get_args())
-        );
-
-        $iResult = pg_result_status($rQueryResult);
-
-        if ($iResult != PGSQL_TUPLES_OK) {
-            $this->handleQueryError();
-            return $aOut;
-        }
+        $rQueryResult = $this->_pg_query(func_get_args());
 
         while ($aResult = pg_fetch_assoc($rQueryResult)) {
+            // you should provide at least 2 column in the result set
             $sIndex1 = reset($aResult);
             $sIndex2 = next($aResult);
             $aOut[$sIndex1][$sIndex2] = $aResult;
         }
-
-        $this->iRows = pg_num_rows($rQueryResult);
 
         return $aOut;
     }
@@ -636,46 +519,65 @@ class LibPostgres {
     {
         $aOut = array();
 
-        if (!$this->connect()) {
+        if (! $this->connect()) {
             return $aOut;
         }
 
-        $rQueryResult = pg_query(
-            $this->rConnection,
-            $this->process(func_get_args())
-        );
-
-        $iResult = pg_result_status($rQueryResult);
-
-        if ($iResult != PGSQL_TUPLES_OK) {
-            $this->handleQueryError();
-            return $aOut;
-        }
+        $rQueryResult = $this->_pg_query(func_get_args());
 
         while ($aResult = pg_fetch_row($rQueryResult)) {
+            // you should provide at least 4 column in the result set
             $aOut[$aResult[0]][$aResult[1]][$aResult[2]] = $aResult[3];
         }
-
-        $this->iRows = pg_num_rows($rQueryResult);
 
         return $aOut;
     }
 
-    public function getLastQuery() {
-        return $this->sLastQuery;
+    public function select3IndexedTable()
+    {
+        $aOut = array();
+
+        if (! $this->connect()) {
+            return $aOut;
+        }
+
+        $rQueryResult = $this->_pg_query(func_get_args());
+
+        while ($aResult = pg_fetch_row($rQueryResult)) {
+            // you should provide at least 4 column in the result set
+            $aOut[$aResult[0]][$aResult[1]][$aResult[2]] = $aResult;
+        }
+
+        return $aOut;
+    }
+
+    public function getLastQuery()
+    {
+        return trim($this->sLastQuery);
     }
 
     public function getRowsQuantity()
     {
-        return intval($this->iRows);
+        return $this->iRows;
     }
 
-    protected function handleQueryError($sMessage = false)
+    public function getAffectedRowsQuantity()
     {
-        $sError = ($sMessage) ? $sMessage : pg_last_error($this->rConnection);
+        return $this->iAffectedRowsCount;
+    }
+
+    protected function throwException($sMessage = false, $bSayRollback = true)
+    {
+        // use given message or internal?
+        $sError = $sMessage ? : pg_last_error($this->rConnection);
 
         if (! $sError) {
-            $sError = 'Undefined error.';
+            $sError = 'Undefined error (check if your select query really returns any data).';
+        }
+
+        // see _pg_query for details
+        if ($bSayRollback) {
+            $this->_pg_query("ROLLBACK;", array(PGSQL_COMMAND_OK, PGSQL_TUPLES_OK));
         }
 
         throw new \Exception($sError);
