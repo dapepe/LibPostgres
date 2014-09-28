@@ -8,7 +8,9 @@
  * See http://github.com/denismilovanov/LibPostgres
  */
 
-class LibPostgres
+namespace LibPostgres;
+
+class LibPostgresDriver
 {
     private $rConnection;
     private $bConnected;
