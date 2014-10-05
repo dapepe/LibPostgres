@@ -4,12 +4,16 @@ LibPostgres
 Tiny wrapper over php postgresql functions (pg_connect, pg_query, etc).  
 It is just wrapper, database access layer, not ORM.
 
+##Installation
+
+    composer require denismilovanov/libpostgres
+
 ##Sample
 
 
 ####Lets start with connection:
 
-    $oDB = new LibPostgres(array(
+    $oDB = new \LibPostgres\LibPostgresDriver(array(
         'host' => 'localhost',
         'port' => 5432,
         'user_name' => 'test',
