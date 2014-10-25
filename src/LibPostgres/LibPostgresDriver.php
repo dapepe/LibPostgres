@@ -577,6 +577,9 @@ class LibPostgresDriver
             $sError = 'Undefined error (check if your select query really returns any data).';
         }
 
+        // an exception will be thrown, so mark the end of transaction
+        $this->bActiveTransaction = false;
+
         // see _pg_query for details
         if ($bSayRollback) {
             $this->_pg_query("ROLLBACK;", array(PGSQL_COMMAND_OK, PGSQL_TUPLES_OK));
