@@ -61,7 +61,7 @@ class LibPostgresDriver
 
         // to suppress E_WARNING that can happen
         error_reporting(0);
-        $this->rConnection = pg_connect($this->sConnString);
+        $this->rConnection = pg_connect($this->sConnString, PGSQL_CONNECT_FORCE_NEW);
 
         // lets restore previous level
         error_reporting($iLevel);
