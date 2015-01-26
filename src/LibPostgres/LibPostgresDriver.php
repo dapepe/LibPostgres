@@ -185,6 +185,24 @@ class LibPostgresDriver
         return pg_escape_string($this->rConnection, $sArg);
     }
 
+    public function prepareHstore($aArg) {
+        if (! is_array($aArg)) {
+            return '';
+        }
+
+        $aResult = array();
+
+        foreach ($aArg as $sKey => $sValue) {
+            $sKey = str_replace('\\', '\\\\', $sKey);
+            $sKey = str_replace('"', '\"', $sKey);
+            $sValue = str_replace('\\', '\\\\', $sValue);
+            $sValue = str_replace('"', '\"', $sValue);
+            $aResult []= '"' . $sKey . '" => "' . $sValue . '"';
+        }
+
+        return $this->escape(implode(', ', $aResult));
+    }
+
     public function process($aArgs)
     {
         if (empty($aArgs)) {
@@ -202,7 +220,7 @@ class LibPostgresDriver
         }
 
         foreach ($aArgs as $mArg) {
-            if (! preg_match('/([^\\\\])\?(w|i|d|f|)/', $this->sLastQuery, $aMatch)) {
+            if (! preg_match('/([^\\\\])\?(w|i|d|f|h|)/', $this->sLastQuery, $aMatch)) {
                 return $this->sLastQuery;
             }
 
@@ -218,6 +236,11 @@ class LibPostgresDriver
                     } else {
                         $mArg = "'" . pg_escape_string($this->rConnection, $mArg) . "'";
                     }
+
+                    break;
+
+                case 'h':
+                    $mArg = "'" . $this->prepareHstore($mArg) . "'::hstore";
 
                     break;
 
