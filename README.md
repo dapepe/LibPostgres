@@ -204,5 +204,5 @@ Also exceptions are thrown in case of constraint violation, deadlocks, server pr
 
 ### Notes
 
-* select-smth methods do not require to start transaction explicitly and they do not limit you to use DML in autocommit mode, such as `INSERT INTO ... RETURNING`.
-
+* select-smth methods do not require to start transaction explicitly and they do not limit you to use DML in autocommit mode, such as `INSERT INTO ... RETURNING`,
+* to use pg_pconnect instead of pg_connect pass `persistence => 1` or `persistence => PGSQL_CONNECT_FORCE_NEW` into constructor.

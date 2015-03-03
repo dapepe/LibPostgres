@@ -20,6 +20,7 @@ class LibPostgresDriver
     private $sUser;
     private $sPwd;
     private $sDB;
+    private $iPersistence;
     private $iPort;
     private $iRows;
     private $sLastQuery;
@@ -37,6 +38,11 @@ class LibPostgresDriver
         $this->sUser   = $aConfig['user_name'];
         $this->sPwd    = $aConfig['user_password'];
         $this->sDB     = $aConfig['db_name'];
+
+        // 0 - pg_connect
+        // 1 - pg_pconnect
+        // 2 - pg_pconnect(..., PGSQL_CONNECT_FORCE_NEW)
+        $this->iPersistence = isset($aConfig['persistence']) ? $aConfig['persistence'] : 0;
 
         $this->sConnString = 'host='     . $this->sHost . ' '
                            . 'port='     . $this->iPort . ' '
@@ -61,7 +67,17 @@ class LibPostgresDriver
 
         // to suppress E_WARNING that can happen
         error_reporting(0);
-        $this->rConnection = pg_connect($this->sConnString, PGSQL_CONNECT_FORCE_NEW);
+
+        if ($this->sPersistance == 0) {
+            // plain connect
+            $this->rConnection = pg_connect($this->sConnString, PGSQL_CONNECT_FORCE_NEW);
+        } else if ($this->sPersistance == 1) {
+            // persistent connect
+            $this->rConnection = pg_pconnect($this->sConnString);
+        } else if ($this->sPersistance == PGSQL_CONNECT_FORCE_NEW) {
+            // persistent connect forced new
+            $this->rConnection = pg_connect($this->sConnString, PGSQL_CONNECT_FORCE_NEW);
+        }
 
         // lets restore previous level
         error_reporting($iLevel);
