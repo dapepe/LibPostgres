@@ -68,13 +68,13 @@ class LibPostgresDriver
         // to suppress E_WARNING that can happen
         error_reporting(0);
 
-        if ($this->sPersistance == 0) {
+        if ($this->iPersistence == 0) {
             // plain connect
             $this->rConnection = pg_connect($this->sConnString, PGSQL_CONNECT_FORCE_NEW);
-        } else if ($this->sPersistance == 1) {
+        } else if ($this->iPersistence == 1) {
             // persistent connect
             $this->rConnection = pg_pconnect($this->sConnString);
-        } else if ($this->sPersistance == PGSQL_CONNECT_FORCE_NEW) {
+        } else if ($this->iPersistence == PGSQL_CONNECT_FORCE_NEW) {
             // persistent connect forced new
             $this->rConnection = pg_connect($this->sConnString, PGSQL_CONNECT_FORCE_NEW);
         }
