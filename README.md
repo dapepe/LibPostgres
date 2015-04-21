@@ -75,6 +75,7 @@ Placeholders are:
 * `?f` - float (floatval used), or flat array of floats,
 * `?w` - string, text, date, timestamp, etc, of flat array of these types (pg_escape_string used),
 * `?h` - hstore (flat key-value array, it will be tranformed to `'key1 => value1, ...'::hstore`),
+* `?j`, `?jb` - json or jsonb,
 * `?` - simple replacement without preparations.
 
 The values of placeholders should be passed in methods after text of query.

@@ -198,7 +198,7 @@ class LibPostgresDriver
             return false;
         }
 
-        return pg_escape_string($this->rConnection, $sArg);
+        return $sArg !== null ? pg_escape_string($this->rConnection, $sArg) : 'NULL';
     }
 
     public function prepareHstore($aArg) {
@@ -209,11 +209,16 @@ class LibPostgresDriver
         $aResult = array();
 
         foreach ($aArg as $sKey => $sValue) {
+            if (empty($sKey)) {
+                continue;
+            }
             $sKey = str_replace('\\', '\\\\', $sKey);
             $sKey = str_replace('"', '\"', $sKey);
-            $sValue = str_replace('\\', '\\\\', $sValue);
-            $sValue = str_replace('"', '\"', $sValue);
-            $aResult []= '"' . $sKey . '" => "' . $sValue . '"';
+            if ($sValue !== null) {
+                $sValue = str_replace('\\', '\\\\', $sValue);
+                $sValue = str_replace('"', '\"', $sValue);
+            }
+            $aResult []= '"' . $sKey . '" => ' . ($sValue !== null ? ('"' . $sValue . '"') : 'NULL');
         }
 
         return $this->escape(implode(', ', $aResult));
@@ -240,7 +245,7 @@ class LibPostgresDriver
         }
 
         foreach ($aArgs as $mArg) {
-            if (! preg_match('/([^\\\\])\?(w|i|d|f|h|j|(jb)|)/', $this->sLastQuery, $aMatch)) {
+            if (! preg_match('/([^\\\\])\?(w|i|d|f|h|(jb)|j|)/', $this->sLastQuery, $aMatch)) {
                 return $this->sLastQuery;
             }
 
@@ -248,29 +253,29 @@ class LibPostgresDriver
                 case 'w':
                     if (is_array($mArg)) {
                         foreach ($mArg as $mKey => $sArg) {
-                            $mArg[$mKey] = "'" . pg_escape_string($this->rConnection, $sArg) . "'";
+                            $mArg[$mKey] = $sArg !== null ? ("'" . $this->escape($sArg) . "'") : 'NULL';
                         }
 
                         $mArg = implode(',', $mArg);
 
                     } else {
-                        $mArg = "'" . pg_escape_string($this->rConnection, $mArg) . "'";
+                        $mArg = $mArg !== null ? ("'" . $this->escape($mArg) . "'") : 'NULL';
                     }
 
                     break;
 
                 case 'h':
-                    $mArg = "'" . $this->prepareHstore($mArg) . "'::hstore";
+                    $mArg = $mArg !== null ? ("'" . $this->prepareHstore($mArg) . "'::hstore") : 'NULL::hstore';
 
                     break;
 
                 case 'j':
-                    $mArg = "'" . $this->prepareJson($mArg) . "'::json";
+                    $mArg = $mArg !== null ? ("'" . $this->prepareJson($mArg) . "'::json") : 'NULL::jsonb';
 
                     break;
 
                 case 'jb':
-                    $mArg = "'" . $this->prepareJson($mArg) . "'::jsonb";
+                    $mArg = $mArg !== null ? ("'" . $this->prepareJson($mArg) . "'::jsonb") : 'NULL::jsonb';
 
                     break;
 
@@ -292,12 +297,12 @@ class LibPostgresDriver
                     if (is_array($mArg)) {
 
                         foreach ($mArg as $mKey => $sArg) {
-                            $mArg[$mKey] = intval($sArg);
+                            $mArg[$mKey] = $sArg !== null ? intval($sArg) : 'NULL';
                         }
 
                         $mArg = implode(',', $mArg);
                     } else {
-                        $mArg = intval($mArg);
+                        $mArg = $mArg !== null ? intval($mArg) : 'NULL';
                     }
 
                     break;
@@ -306,12 +311,12 @@ class LibPostgresDriver
                     if (is_array($mArg)) {
 
                         foreach ($mArg as $mKey => $sArg) {
-                            $mArg[$mKey] = floatval($sArg);
+                            $mArg[$mKey] = $sArg !== null ? floatval($sArg) : 'NULL';
                         }
 
                         $mArg = implode(',', $mArg);
                     } else {
-                        $mArg = floatval($mArg);
+                        $mArg = $mArg !== null ? floatval($mArg) : 'NULL';
                     }
 
                     break;
