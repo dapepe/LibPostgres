@@ -64,6 +64,23 @@ class SelectTest extends PHPUnit_Framework_TestCase
 
         $this->assertEquals($aColumn[3], '"FIELD"\"bar\"' . "\n\t" . '3');
 
+        // selectField and ?j / ?jb
+
+        $sString1 = "\xc3\xa9";
+        $sString2 = "bla'bla\"? абв";
+
+        $sResult = $oDB->selectField("
+            SELECT (?jb->>'first') || (?j->>'second')
+        ",
+            array(
+                'first' => $sString1,
+            ),
+            array(
+                'second' => $sString2,
+            )
+        );
+
+        $this->assertEquals($sResult, $sString1 . $sString2);
 
     }
 

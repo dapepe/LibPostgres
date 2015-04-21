@@ -219,6 +219,10 @@ class LibPostgresDriver
         return $this->escape(implode(', ', $aResult));
     }
 
+    public function prepareJson($mArg) {
+        return $this->escape(json_encode($mArg));
+    }
+
     public function process($aArgs)
     {
         if (empty($aArgs)) {
@@ -236,7 +240,7 @@ class LibPostgresDriver
         }
 
         foreach ($aArgs as $mArg) {
-            if (! preg_match('/([^\\\\])\?(w|i|d|f|h|)/', $this->sLastQuery, $aMatch)) {
+            if (! preg_match('/([^\\\\])\?(w|i|d|f|h|j|(jb)|)/', $this->sLastQuery, $aMatch)) {
                 return $this->sLastQuery;
             }
 
@@ -257,6 +261,16 @@ class LibPostgresDriver
 
                 case 'h':
                     $mArg = "'" . $this->prepareHstore($mArg) . "'::hstore";
+
+                    break;
+
+                case 'j':
+                    $mArg = "'" . $this->prepareJson($mArg) . "'::json";
+
+                    break;
+
+                case 'jb':
+                    $mArg = "'" . $this->prepareJson($mArg) . "'::jsonb";
 
                     break;
 
